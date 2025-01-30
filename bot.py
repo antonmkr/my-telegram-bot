@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 # Загружаем переменные окружения
 load_dotenv()
-
+client = openai.Client()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
@@ -85,15 +85,15 @@ def generate_ai_text(prompt, use_gpt4=False):
     model = "gpt-4-turbo" if use_gpt4 else "gpt-3.5-turbo"
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "Ты ведешь Telegram-канал. Пиши интересно, добавляй эмоции и инсайды."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=200  # Уменьшаем лимит токенов, чтобы не обрезало
+            max_tokens=1000
         )
-        return response["choices"][0]["message"]["content"]
+        return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Ошибка генерации текста AI: {e}")
         return "🤖 Ошибка AI. Обсудим в комментариях!"
