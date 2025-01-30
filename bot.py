@@ -45,7 +45,6 @@ NEWS_SOURCES = {
     "BBC News": "http://feeds.bbci.co.uk/news/rss.xml",
     "TechCrunch": "https://techcrunch.com/feed/",
     "Crypto News": "https://cryptonews.com/news/feed/",
-    "Investing Real Estate": "https://www.investing.com/news/real-estate-news"
 }
 
 
