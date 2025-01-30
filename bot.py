@@ -94,7 +94,7 @@ def generate_ai_text(prompt, use_gpt4=False):
                  "content": "Ты эксперт и блогер, который ведёт Telegram-канал. Пиши интересно, добавляй эмоции и инсайды."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=350
+            max_tokens=500
         )
         return response.choices[0].message.content
 
