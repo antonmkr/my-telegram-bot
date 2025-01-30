@@ -4,7 +4,7 @@ import random
 import requests
 import openai
 from telegram import Bot
-from praw import Reddit
+import asyncpraw
 
 import os
 from dotenv import load_dotenv
@@ -29,10 +29,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # 🔹 Настройка API Reddit
-reddit = Reddit(
-    client_id=REDDIT_CLIENT_ID,
-    client_secret=REDDIT_CLIENT_SECRET,
-    user_agent=REDDIT_USER_AGENT,
+reddit = asyncpraw.Reddit(
+    client_id=os.getenv("REDDIT_CLIENT_ID"),
+    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+    user_agent=os.getenv("REDDIT_USER_AGENT")
 )
 
 # 🔹 Источники новостей
