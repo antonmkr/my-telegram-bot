@@ -4,8 +4,7 @@ import random
 import requests
 import openai
 import os
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler
+from telegram import Bot
 from praw import Reddit
 from dotenv import load_dotenv
 
@@ -41,8 +40,7 @@ NEWS_SOURCES = {
     "Crypto News": "https://cryptonews.com/news/feed/",
 }
 
-
-# 🔹 Получение новостей (с ограничением длины)
+# 🔹 Получение новостей (с разными стилями)
 def fetch_latest_news():
     news_list = []
     for source, url in NEWS_SOURCES.items():
@@ -51,7 +49,7 @@ def fetch_latest_news():
             response.raise_for_status()
             from xml.etree import ElementTree as ET
             root = ET.fromstring(response.text)
-            items = root.findall(".//item")[:3]  # Берем 3 самые свежие новости
+            items = root.findall(".//item")[:3]
 
             for item in items:
                 title = item.find("title").text.strip()
@@ -63,65 +61,70 @@ def fetch_latest_news():
 
     return news_list
 
-
-# 🔹 Получение хайповых постов с Reddit
-def fetch_reddit_posts(subreddits, limit=3):
+# 🔹 Получение хайповых постов с Reddit (иногда добавляем мемы)
+def fetch_reddit_posts():
+    subreddits = ["stocks", "technology", "crypto", "finance", "memes", "funny", "programming"]
     posts = []
     try:
-        for subreddit in subreddits:
-            logger.info(f"📢 Получаем посты из r/{subreddit}...")
-            for submission in reddit.subreddit(subreddit).hot(limit=limit):
-                if not submission.over_18:
-                    title = submission.title.strip()
-                    if len(title) > 100:
-                        title = title[:100] + "..."
-                    posts.append(title)
+        subreddit = random.choice(subreddits)
+        logger.info(f"📢 Получаем посты из r/{subreddit}...")
+        for submission in reddit.subreddit(subreddit).hot(limit=5):
+            if not submission.over_18:
+                title = submission.title.strip()
+                if len(title) > 100:
+                    title = title[:100] + "..."
+                posts.append(title)
     except Exception as e:
         logger.error(f"Ошибка получения постов с Reddit: {e}")
     return posts
 
-
-# 🔹 AI генерация текста (GPT-4 для аналитики, GPT-3.5 для мемов)
+# 🔹 AI генерация уникального текста (разные стили, инсайды, мемы)
 def generate_ai_text(prompt, use_gpt4=False):
     model = "gpt-4-turbo" if use_gpt4 else "gpt-3.5-turbo"
+    styles = [
+        "Пиши с шутками и мемами",
+        "Добавь инсайды и сделай это сенсацией!",
+        "Разбери тему аналитически, как эксперт",
+        "Напиши так, будто это горячая новость!",
+        "Расскажи простыми словами, как для друга",
+    ]
+    style = random.choice(styles)
 
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Ты ведешь Telegram-канал. Пиши интересно, добавляй эмоции и инсайды."},
+                {"role": "system", "content": f"Ты ведешь Telegram-канал. {style}"},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1000
+            max_tokens=700
         )
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Ошибка генерации текста AI: {e}")
-        return "🤖 Ошибка AI. Обсудим в комментариях!"
+        return "🤖 Ошибка AI. Попробуй позже!"
 
-
-# 🔹 AI генерация советов по деньгам и инвестициям
+# 🔹 AI генерация советов по деньгам, крипте и инвестициям
 def generate_finance_tips():
     topics = [
-        "Лучшие способы пассивного дохода в 2025 году",
-        "Почему важно инвестировать в себя?",
-        "Какие активы защищают деньги от инфляции?",
-        "Как минимизировать риски при инвестициях?",
-        "Ошибки начинающих инвесторов и как их избежать"
+        "Какой бизнес запустить в 2025 году?",
+        "Стоит ли инвестировать в криптовалюту сейчас?",
+        "Как зарабатывать на акциях без риска?",
+        "Новые тренды в недвижимости",
+        "Какие стартапы сейчас поднимаются?",
+        "Как не потерять деньги в инвестициях?",
     ]
     chosen_topic = random.choice(topics)
-    return generate_ai_text(f"Дай экспертный совет на тему: {chosen_topic}", use_gpt4=True)
+    return generate_ai_text(f"Дай экспертный совет по теме: {chosen_topic}", use_gpt4=True)
 
-
-# 🔹 Функция отправки постов
+# 🔹 Функция отправки постов в Telegram
 async def send_post(bot, text):
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка отправки поста в Telegram: {e}")
 
-
-# 🔹 Главная функция генерации контента и постинга
+# 🔹 Генерация контента и постинг
 async def create_and_post_content(bot):
     while True:
         logger.info("📢 Генерация нового AI-контента...")
@@ -134,18 +137,18 @@ async def create_and_post_content(bot):
             if latest_news:
                 selected_news = random.choice(latest_news)
                 news_text = generate_ai_text(
-                    f"Разбери эту новость кратко: {selected_news}. Добавь мнение и инсайды.",
+                    f"🔥 Разбери эту новость интересно: {selected_news}. Добавь эмоции и инсайды.",
                     use_gpt4=True)
                 await send_post(bot, news_text)
             else:
                 logger.warning("⚠ Нет свежих новостей")
 
         elif content_type == "reddit":
-            reddit_posts = fetch_reddit_posts(["stocks", "technology", "crypto", "finance"], limit=3)
+            reddit_posts = fetch_reddit_posts()
             if reddit_posts:
                 selected_post = random.choice(reddit_posts)
                 post_text = generate_ai_text(
-                    f"Дай свой краткий разбор поста: {selected_post}. Пиши живо и интересно.",
+                    f"🎭 Дай свой авторский разбор этого поста: {selected_post}. Сделай круто!",
                     use_gpt4=False)
                 await send_post(bot, post_text)
             else:
@@ -155,40 +158,16 @@ async def create_and_post_content(bot):
             tip_text = generate_finance_tips()
             await send_post(bot, tip_text)
 
-        delay = random.randint(1800, 10800)  # 30 минут - 3 часа
+        # ⏳ Реалистичный интервал (30 минут - 3 часа)
+        delay = random.randint(1800, 10800)
         logger.info(f"⏳ Следующий пост через {delay // 60} минут.")
         await asyncio.sleep(delay)
-
-
-# 🔹 Функция обработки команды /post
-async def post_command(update: Update, context):
-    if not context.args:
-        await update.message.reply_text("❌ Напиши тему поста, например: /post Новости криптовалюты сегодня")
-        return
-
-    topic = " ".join(context.args)
-    await update.message.reply_text(f"⚡ Генерирую пост по теме: {topic}...")
-
-    post_text = generate_ai_text(topic)
-
-    context.bot.send_message(chat_id=CHANNEL_ID, text=post_text, parse_mode="HTML")
-    await update.message.reply_text("✅ Пост отправлен в канал!")
-
 
 # 🔹 Запуск бота
 async def main():
     bot = Bot(TELEGRAM_TOKEN)
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-
-    # Команда для ручного постинга
-    app.add_handler(CommandHandler("post", post_command))
-
-    # Запускаем авто-постинг в фоне
-    asyncio.create_task(create_and_post_content(bot))
-
     logger.info("🚀 AI-Бот запущен!")
-    await app.run_polling()
-
+    await create_and_post_content(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
