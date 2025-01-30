@@ -3,25 +3,23 @@ import asyncio
 import random
 import requests
 import openai
-from telegram import Bot
-from praw import Reddit
-
 import os
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler
+from praw import Reddit
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения
+# 🔹 Загружаем переменные окружения
 load_dotenv()
 client = openai.Client()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
 REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
-
 CHANNEL_ID = "@gachistocks"
 
 # 🔹 Reddit API Credentials
 REDDIT_USER_AGENT = "MyTelegramBot/0.1 by defiler16"
-
 openai.api_key = OPENAI_API_KEY
 
 # 🔹 Настройка логов
@@ -43,6 +41,7 @@ NEWS_SOURCES = {
     "Crypto News": "https://cryptonews.com/news/feed/",
 }
 
+
 # 🔹 Получение новостей (с ограничением длины)
 def fetch_latest_news():
     news_list = []
@@ -56,13 +55,14 @@ def fetch_latest_news():
 
             for item in items:
                 title = item.find("title").text.strip()
-                if len(title) > 100:  # Ограничиваем длину заголовка
+                if len(title) > 100:
                     title = title[:100] + "..."
                 news_list.append(title)
         except Exception as e:
             logger.error(f"Ошибка получения новостей с {source}: {e}")
 
     return news_list
+
 
 # 🔹 Получение хайповых постов с Reddit
 def fetch_reddit_posts(subreddits, limit=3):
@@ -73,12 +73,13 @@ def fetch_reddit_posts(subreddits, limit=3):
             for submission in reddit.subreddit(subreddit).hot(limit=limit):
                 if not submission.over_18:
                     title = submission.title.strip()
-                    if len(title) > 100:  # Ограничиваем длину заголовка
+                    if len(title) > 100:
                         title = title[:100] + "..."
                     posts.append(title)
     except Exception as e:
         logger.error(f"Ошибка получения постов с Reddit: {e}")
     return posts
+
 
 # 🔹 AI генерация текста (GPT-4 для аналитики, GPT-3.5 для мемов)
 def generate_ai_text(prompt, use_gpt4=False):
@@ -98,6 +99,7 @@ def generate_ai_text(prompt, use_gpt4=False):
         logger.error(f"Ошибка генерации текста AI: {e}")
         return "🤖 Ошибка AI. Обсудим в комментариях!"
 
+
 # 🔹 AI генерация советов по деньгам и инвестициям
 def generate_finance_tips():
     topics = [
@@ -110,12 +112,14 @@ def generate_finance_tips():
     chosen_topic = random.choice(topics)
     return generate_ai_text(f"Дай экспертный совет на тему: {chosen_topic}", use_gpt4=True)
 
+
 # 🔹 Функция отправки постов
 async def send_post(bot, text):
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка отправки поста в Telegram: {e}")
+
 
 # 🔹 Главная функция генерации контента и постинга
 async def create_and_post_content(bot):
@@ -151,16 +155,40 @@ async def create_and_post_content(bot):
             tip_text = generate_finance_tips()
             await send_post(bot, tip_text)
 
-        # ⏳ Реалистичный интервал (от 30 минут до 5 часов)
-        delay = random.randint(1800, 10800)  # Уменьшил макс. интервал до 3 часов
+        delay = random.randint(1800, 10800)  # 30 минут - 3 часа
         logger.info(f"⏳ Следующий пост через {delay // 60} минут.")
         await asyncio.sleep(delay)
+
+
+# 🔹 Функция обработки команды /post
+async def post_command(update: Update, context):
+    if not context.args:
+        await update.message.reply_text("❌ Напиши тему поста, например: /post Новости криптовалюты сегодня")
+        return
+
+    topic = " ".join(context.args)
+    await update.message.reply_text(f"⚡ Генерирую пост по теме: {topic}...")
+
+    post_text = generate_ai_text(topic)
+
+    context.bot.send_message(chat_id=CHANNEL_ID, text=post_text, parse_mode="HTML")
+    await update.message.reply_text("✅ Пост отправлен в канал!")
+
 
 # 🔹 Запуск бота
 async def main():
     bot = Bot(TELEGRAM_TOKEN)
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # Команда для ручного постинга
+    app.add_handler(CommandHandler("post", post_command))
+
+    # Запускаем авто-постинг в фоне
+    asyncio.create_task(create_and_post_content(bot))
+
     logger.info("🚀 AI-Бот запущен!")
-    await create_and_post_content(bot)
+    await app.run_polling()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
