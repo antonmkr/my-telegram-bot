@@ -3,9 +3,9 @@ import asyncio
 import random
 import requests
 import openai
-from telegram import Bot
-from praw import Reddit
 import os
+from telegram import Bot, InputMediaPhoto, InputMediaVideo
+from praw import Reddit
 from dotenv import load_dotenv
 
 # 🔹 Загружаем переменные окружения
@@ -19,7 +19,7 @@ REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
 CHANNEL_ID = "@gachistocks"
 openai.api_key = OPENAI_API_KEY
 
-# 🔹 Настройка логов
+# 🔹 Логирование
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ reddit = Reddit(
     user_agent="MyTelegramBot/0.1 by defiler16",
 )
 
-# 🔹 Источники новостей (убрали BBC)
+# 🔹 Новостные источники (добавили больше)
 NEWS_SOURCES = {
     "Yahoo Finance": "https://finance.yahoo.com/rss/topstories",
     "TechCrunch": "https://techcrunch.com/feed/",
@@ -54,7 +54,7 @@ def fetch_latest_news():
             response.raise_for_status()
             from xml.etree import ElementTree as ET
             root = ET.fromstring(response.text)
-            items = root.findall(".//item")[:5]
+            items = root.findall(".//item")[:7]  # Больше новостей
 
             for item in items:
                 title = item.find("title").text.strip()
@@ -70,20 +70,22 @@ def fetch_reddit_posts(subreddits, limit=5):
         for subreddit in subreddits:
             for submission in reddit.subreddit(subreddit).hot(limit=limit):
                 if not submission.over_18:
-                    title = submission.title.strip()
-                    posts.append(title)
+                    posts.append({
+                        "title": submission.title.strip(),
+                        "url": submission.url if submission.url.endswith(("jpg", "png", "mp4", "gif")) else None
+                    })
     except Exception as e:
         logger.error(f"Ошибка получения постов с Reddit: {e}")
     return posts
 
-# 🔹 Генерация AI-текста без ограничений, которые портят форматирование
+# 🔹 Генерация AI-текста (убрали форматирование)
 def generate_ai_text(prompt, use_gpt4=False):
     model = "gpt-4-turbo" if use_gpt4 else "gpt-3.5-turbo"
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Ты ведешь Telegram-канал. Пиши живым языком, добавляй инсайды, юмор и эмоции."},
+                {"role": "system", "content": "Ты ведешь Telegram-канал. Пиши просто, живо, добавляй эмоции, инсайды и немного юмора."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2000
@@ -93,43 +95,19 @@ def generate_ai_text(prompt, use_gpt4=False):
         logger.error(f"Ошибка AI: {e}")
         return "Что-то пошло не так. Пишите в комменты!"
 
-# 🔹 Список тем для AI-аналитики
-finance_topics = [
-    "Как создать пассивный доход в 2025?",
-    "Какие активы лучше всего защитят от инфляции?",
-    "Куда вложить деньги, если у тебя всего 1000$?",
-    "Какие акции сейчас недооценены?",
-    "5 главных ошибок начинающих инвесторов",
-    "Как крупные фонды управляют миллиардами?",
-    "Будущее крипты: какие монеты перспективны?",
-    "Лучшие стратегии для торговли на рынке"
-]
-
-def generate_finance_tips():
-    return generate_ai_text(f"Расскажи просто и понятно: {random.choice(finance_topics)}", use_gpt4=True)
-
-# 🔹 Дополнительные AI-функции
-def generate_market_analysis():
-    return generate_ai_text("Дай простой обзор рынка на сегодня: главные события и тренды.", use_gpt4=True)
-
-def generate_crypto_trends():
-    return generate_ai_text("Свежие тренды в криптовалюте: какие монеты сейчас на хайпе?", use_gpt4=True)
-
-def generate_investment_hacks():
-    return generate_ai_text("Расскажи инвестиционные лайфхаки, которые помогут заработать.", use_gpt4=True)
-
-def generate_real_estate_tips():
-    return generate_ai_text("Как выгодно вложиться в недвижимость в 2025 году?", use_gpt4=True)
+# 🔹 Получение мемов и видео
+def fetch_memes():
+    return fetch_reddit_posts(["memeeconomy", "wallstreetbets", "cryptocurrencymemes"], limit=5)
 
 # 🔹 Контентные категории
 content_choices = [
-    "news", "reddit", "finance_tips", "crypto_insights", "market_analysis",
-    "crypto_trends", "investment_hacks", "real_estate_tips"
+    "news", "reddit", "finance_tips", "crypto_insights",
+    "market_analysis", "crypto_trends", "investment_hacks",
+    "real_estate_tips", "memes"
 ]
 
-# 🔹 Форматирование текста перед отправкой (без Telegram-разметки)
+# 🔹 Форматирование текста перед отправкой
 def clean_and_format_text(text):
-    text = text.replace("🤖", "📊")  # Заменяем нейтральным эмодзи
     text = "\n".join([line.strip() for line in text.split("\n") if line.strip()])  # Убираем лишние переносы строк
     return text
 
@@ -141,7 +119,17 @@ async def send_post(bot, text):
     except Exception as e:
         logger.error(f"Ошибка отправки поста: {e}")
 
-# 🔹 Алгоритм выбора контента
+# 🔹 Функция отправки медиа (картинки, видео)
+async def send_media(bot, media_url, caption=""):
+    try:
+        if media_url.endswith(("jpg", "png")):
+            await bot.send_photo(chat_id=CHANNEL_ID, photo=media_url, caption=caption)
+        elif media_url.endswith(("mp4", "gif")):
+            await bot.send_video(chat_id=CHANNEL_ID, video=media_url, caption=caption)
+    except Exception as e:
+        logger.error(f"Ошибка отправки медиа: {e}")
+
+# 🔹 Алгоритм генерации контента
 async def create_and_post_content(bot):
     while True:
         logger.info("📢 Генерация контента...")
@@ -158,17 +146,29 @@ async def create_and_post_content(bot):
             reddit_posts = fetch_reddit_posts(["stocks", "technology", "crypto", "finance", "economy", "wallstreetbets"], limit=5)
             if reddit_posts:
                 selected_post = random.choice(reddit_posts)
-                post_text = generate_ai_text(f"Что думаешь об этом посте? {selected_post}", use_gpt4=False)
+                post_text = generate_ai_text(f"Что думаешь об этом посте? {selected_post['title']}", use_gpt4=False)
                 await send_post(bot, post_text)
 
-        elif content_type == "finance_tips":
-            await send_post(bot, generate_finance_tips())
+        elif content_type == "memes":
+            memes = fetch_memes()
+            if memes:
+                selected_meme = random.choice(memes)
+                if selected_meme["url"]:
+                    await send_media(bot, selected_meme["url"], caption=selected_meme["title"])
+                else:
+                    await send_post(bot, selected_meme["title"])
 
-        elif content_type == "crypto_insights":
-            await send_post(bot, generate_crypto_trends())
-
-        elif content_type == "market_analysis":
-            await send_post(bot, generate_market_analysis())
+        else:
+            topic_map = {
+                "finance_tips": "Расскажи полезный инвестиционный совет",
+                "crypto_insights": "Свежие новости криптовалюты",
+                "market_analysis": "Обзор фондового рынка на сегодня",
+                "crypto_trends": "Какой новый токен на хайпе?",
+                "investment_hacks": "Лайфхаки для инвесторов",
+                "real_estate_tips": "Как заработать на недвижимости"
+            }
+            if content_type in topic_map:
+                await send_post(bot, generate_ai_text(topic_map[content_type], use_gpt4=True))
 
         delay = random.randint(1800, 7200)  # От 30 минут до 2 часов
         logger.info(f"⏳ Следующий пост через {delay // 60} минут.")
