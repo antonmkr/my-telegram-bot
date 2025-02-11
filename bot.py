@@ -7,6 +7,8 @@ import os
 from telegram import Bot, InputMediaPhoto, InputMediaVideo
 from praw import Reddit
 from dotenv import load_dotenv
+from datetime import datetime
+from web import search
 
 # 🔹 Загружаем переменные окружения
 load_dotenv()
@@ -30,40 +32,32 @@ reddit = Reddit(
     user_agent="MyTelegramBot/0.1 by defiler16",
 )
 
-# 🔹 Новостные источники (добавили больше)
-NEWS_SOURCES = {
-    "Yahoo Finance": "https://finance.yahoo.com/rss/topstories",
-    "TechCrunch": "https://techcrunch.com/feed/",
-    "Crypto News": "https://cryptonews.com/news/feed/",
-    "CNBC": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "Bloomberg": "https://www.bloomberg.com/feeds/podcast.xml",
-    "Wall Street Journal": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
-    "Investing.com": "https://www.investing.com/rss/news.rss",
-    "Forbes": "https://www.forbes.com/investing/feed/",
-    "Financial Times": "https://www.ft.com/rss/home",
-    "MarketWatch": "https://www.marketwatch.com/rss/topstories",
-    "The Economist": "https://www.economist.com/latest/rss.xml"
-}
+# 🔹 Источники новостей (убираем старые, только свежие)
+NEWS_SOURCES = [
+    "site:finance.yahoo.com",
+    "site:techcrunch.com",
+    "site:cryptonews.com",
+    "site:cnbc.com",
+    "site:bloomberg.com",
+    "site:investing.com",
+    "site:forbes.com",
+    "site:marketwatch.com",
+    "site:economist.com"
+]
 
-# 🔹 Получение новостей
+# 🔹 Функция поиска свежих новостей
 def fetch_latest_news():
     news_list = []
-    for source, url in NEWS_SOURCES.items():
-        try:
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            from xml.etree import ElementTree as ET
-            root = ET.fromstring(response.text)
-            items = root.findall(".//item")[:7]  # Больше новостей
-
-            for item in items:
-                title = item.find("title").text.strip()
-                news_list.append(title)
-        except Exception as e:
-            logger.error(f"Ошибка получения новостей с {source}: {e}")
+    query = f"новости фондового рынка OR криптовалюты OR инвестиции OR недвижимость после:{datetime.today().strftime('%Y-%m-%d')}"
+    try:
+        results = search(query)
+        for result in results[:5]:
+            news_list.append(f"{result['title']}\n{result['link']}")
+    except Exception as e:
+        logger.error(f"Ошибка получения новостей: {e}")
     return news_list
 
-# 🔹 Получение постов с Reddit
+# 🔹 Получение свежих постов с Reddit
 def fetch_reddit_posts(subreddits, limit=5):
     posts = []
     try:
@@ -78,14 +72,14 @@ def fetch_reddit_posts(subreddits, limit=5):
         logger.error(f"Ошибка получения постов с Reddit: {e}")
     return posts
 
-# 🔹 Генерация AI-текста (убрали форматирование)
+# 🔹 Генерация AI-текста (без форматирования, но интересно)
 def generate_ai_text(prompt, use_gpt4=False):
     model = "gpt-4-turbo" if use_gpt4 else "gpt-3.5-turbo"
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Ты ведешь Telegram-канал. Пиши просто, живо, добавляй эмоции, инсайды и немного юмора."},
+                {"role": "system", "content": "Ты ведешь Telegram-канал. Пиши живо, интересно, добавляй инсайды, эмоции и немного юмора."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2000
@@ -99,16 +93,24 @@ def generate_ai_text(prompt, use_gpt4=False):
 def fetch_memes():
     return fetch_reddit_posts(["memeeconomy", "wallstreetbets", "cryptocurrencymemes"], limit=5)
 
+# 🔹 Генерация изображений AI
+def generate_ai_image(prompt):
+    try:
+        return f"https://dummyimage.com/800x600/000/fff&text={prompt.replace(' ', '+')}"
+    except Exception as e:
+        logger.error(f"Ошибка генерации изображения: {e}")
+        return None
+
 # 🔹 Контентные категории
 content_choices = [
     "news", "reddit", "finance_tips", "crypto_insights",
     "market_analysis", "crypto_trends", "investment_hacks",
-    "real_estate_tips", "memes"
+    "real_estate_tips", "memes", "ai_image"
 ]
 
 # 🔹 Форматирование текста перед отправкой
 def clean_and_format_text(text):
-    text = "\n".join([line.strip() for line in text.split("\n") if line.strip()])  # Убираем лишние переносы строк
+    text = "\n".join([line.strip() for line in text.split("\n") if line.strip()])
     return text
 
 # 🔹 Функция отправки сообщений
@@ -139,15 +141,13 @@ async def create_and_post_content(bot):
             latest_news = fetch_latest_news()
             if latest_news:
                 selected_news = random.choice(latest_news)
-                news_text = generate_ai_text(f"Что думаешь про эту новость? {selected_news}", use_gpt4=True)
-                await send_post(bot, news_text)
+                await send_post(bot, selected_news)
 
         elif content_type == "reddit":
             reddit_posts = fetch_reddit_posts(["stocks", "technology", "crypto", "finance", "economy", "wallstreetbets"], limit=5)
             if reddit_posts:
                 selected_post = random.choice(reddit_posts)
-                post_text = generate_ai_text(f"Что думаешь об этом посте? {selected_post['title']}", use_gpt4=False)
-                await send_post(bot, post_text)
+                await send_post(bot, selected_post["title"])
 
         elif content_type == "memes":
             memes = fetch_memes()
@@ -157,6 +157,12 @@ async def create_and_post_content(bot):
                     await send_media(bot, selected_meme["url"], caption=selected_meme["title"])
                 else:
                     await send_post(bot, selected_meme["title"])
+
+        elif content_type == "ai_image":
+            ai_prompt = "Мем про трейдинг"
+            ai_image_url = generate_ai_image(ai_prompt)
+            if ai_image_url:
+                await send_media(bot, ai_image_url, caption=ai_prompt)
 
         else:
             topic_map = {
@@ -170,7 +176,7 @@ async def create_and_post_content(bot):
             if content_type in topic_map:
                 await send_post(bot, generate_ai_text(topic_map[content_type], use_gpt4=True))
 
-        delay = random.randint(1800, 7200)  # От 30 минут до 2 часов
+        delay = random.randint(1800, 7200)
         logger.info(f"⏳ Следующий пост через {delay // 60} минут.")
         await asyncio.sleep(delay)
 
